@@ -91,6 +91,9 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
         private set
     var exportProgress by mutableStateOf("")
         private set
+    /** Alasan gagal export TERAKHIR (persisten, tidak ditimpa ringkasan). */
+    var lastExportError by mutableStateOf<String?>(null)
+        private set
     var previewClip by mutableStateOf<VirtualClip?>(null)
         private set
     var previewError by mutableStateOf<String?>(null)
@@ -368,6 +371,7 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
         exportJob?.cancel()
         exportJob = viewModelScope.launch {
             isExporting = true
+            lastExportError = null
             var okCount = 0
             var failCount = 0
             for (clip in selected) {
@@ -386,6 +390,8 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
                 )
                 if (!ok || !tempFile.exists() || tempFile.length() <= 0L) {
                     failCount++
+                    lastExportError = "Clip ${clip.index + 1} gagal: " +
+                        (reason ?: "tanpa alasan")
                     virtualClips = virtualClips.map {
                         if (it.index == clip.index) it.copy(isExporting = false) else it
                     }
@@ -395,6 +401,8 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
                 val publishedPath = publishExport(tempFile, fileName)
                 if (publishedPath == null) {
                     failCount++
+                    lastExportError = "Clip ${clip.index + 1} gagal: " +
+                        "tidak bisa menyimpan ke Download/UnduhKu/clips"
                     virtualClips = virtualClips.map {
                         if (it.index == clip.index) it.copy(isExporting = false) else it
                     }

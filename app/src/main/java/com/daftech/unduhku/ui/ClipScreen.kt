@@ -2,6 +2,7 @@ package com.daftech.unduhku.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -113,17 +115,27 @@ fun ClipScreen(viewModel: UnduhkuViewModel) {
                             fontSize = 13.sp, color = Color(0xFF9CA3AF)
                         )
                         Text("Durasi tiap clip:", fontSize = 13.sp, color = Color.White)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Baris chip bisa di-scroll horizontal + tiap label
+                        // WAJIB satu baris (fix3: "60 dtk" sempat membungkus
+                        // vertikal jadi 6/0/d/t/k karena lebar chip sempit).
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             for (optionMs in ClipPlanner.SEGMENT_OPTIONS_MS) {
                                 val label = "${optionMs / 1000} dtk"
                                 if (viewModel.clipSegmentMs == optionMs) {
                                     Button(onClick = {
                                         viewModel.updateSegmentDuration(optionMs)
-                                    }) { Text(label) }
+                                    }) {
+                                        Text(label, maxLines = 1, softWrap = false)
+                                    }
                                 } else {
                                     OutlinedButton(onClick = {
                                         viewModel.updateSegmentDuration(optionMs)
-                                    }) { Text(label) }
+                                    }) {
+                                        Text(label, maxLines = 1, softWrap = false)
+                                    }
                                 }
                             }
                         }
@@ -201,6 +213,14 @@ fun ClipScreen(viewModel: UnduhkuViewModel) {
                         Text(
                             viewModel.exportProgress,
                             fontSize = 13.sp, color = Color(0xFF9CA3AF)
+                        )
+                    }
+                    // Alasan gagal export TERAKHIR — persisten, tampil
+                    // penuh (tanpa ellipsis) sampai export berikutnya.
+                    if (viewModel.lastExportError != null) {
+                        Text(
+                            viewModel.lastExportError ?: "",
+                            fontSize = 13.sp, color = Color(0xFFF87171)
                         )
                     }
                 }
