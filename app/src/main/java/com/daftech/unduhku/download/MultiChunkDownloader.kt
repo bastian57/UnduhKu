@@ -179,7 +179,11 @@ class MultiChunkDownloader(private val context: Context) {
         }
         val start = rangeStart + if (partFile.exists()) partFile.length() else 0L
         if (useRange && start > rangeEnd) return
-        val builder = Request.Builder()
+        // Nama lengkap okhttp3.Request — WAJIB: data class Request
+        // bersarang di bawah menutupi import okhttp3.Request di
+        // dalam scope class ini, jadi Request.Builder() saja
+        // akan dicari di model itu (tidak punya Builder).
+        val builder = okhttp3.Request.Builder()
             .url(url)
             .header("User-Agent", BROWSER_UA)
         if (useRange) builder.header("Range", "bytes=$start-$rangeEnd")
