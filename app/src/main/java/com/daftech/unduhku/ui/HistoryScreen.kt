@@ -70,7 +70,7 @@ fun HistoryScreen(
                 )
             }
         }
-        items(viewModel.historyDownloads, key = { it.id }) { download ->
+        items(viewModel.historyDownloads, key = { "download-${it.id}" }) { download ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF111827))
@@ -142,7 +142,7 @@ fun HistoryScreen(
                 )
             }
         }
-        items(viewModel.historyExports, key = { it.id }) { clip ->
+        items(viewModel.historyExports, key = { "clip-${it.id}" }) { clip ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF111827))
