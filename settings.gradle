@@ -1,0 +1,18 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        // TANPA JitPack: UnduhKu tidak memakai NewPipeExtractor /
+        // yt-dlp / library pihak ketiga di luar Maven Central.
+    }
+}
+rootProject.name = "UnduhKu"
+include ':app'

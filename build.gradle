@@ -1,0 +1,9 @@
+plugins {
+    // UnduhKu v1.0.0 — AGP 8.7.3 (mentok compileSdk 35) + Kotlin 1.9.25.
+    // JANGAN naik AGP/Kotlin tanpa cek syarat compileSdk + stdlib
+    // (pelajaran ClipKu v1.3.0: media3 1.10+ butuh 36, Room 2.7+
+    // tarik kotlin-stdlib 2.x yang membunuh compiler 1.9.25).
+    id 'com.android.application' version '8.7.3' apply false
+    id 'org.jetbrains.kotlin.android' version '1.9.25' apply false
+    id 'org.jetbrains.kotlin.kapt' version '1.9.25' apply false
+}

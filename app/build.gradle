@@ -1,0 +1,116 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    // Room butuh annotation processing — KAPT (bukan KSP, yang
+    // butuh Kotlin 2.x; KGP di sini tetap 1.9.25). Pola ClipKu v1.3.0.
+    id 'org.jetbrains.kotlin.kapt'
+}
+
+android {
+    namespace 'com.daftech.unduhku'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.daftech.unduhku'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        vectorDrawables { useSupportLibrary = true }
+        ndk {
+            // HP Putra (Redmi Note 10S) = arm64. Batasi ABI biar APK ramping.
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    signingConfigs {
+        tetap {
+            storeFile rootProject.file('signing/unduhku-tetap.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            // TANPA suffix .debug supaya package tetap com.daftech.unduhku.
+            // Kunci tetap dipakai kalau file keystore hasil decode secret ada (CI);
+            // lokal tanpa file itu jatuh ke debug keystore bawaan.
+            // Pola workspace SuaraKu v1.0.2 — JANGAN tanam ke
+            // ~/.android/debug.keystore (pola itu gagal diam-diam).
+            if (rootProject.file('signing/unduhku-tetap.keystore').exists()) {
+                signingConfig signingConfigs.tetap
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+    buildFeatures { compose = true }
+    composeOptions { kotlinCompilerExtensionVersion '1.5.15' }
+    packaging { resources { excludes += '/META-INF/{AL2.0,LGPL2.1}' } }
+}
+
+dependencies {
+    def composeBom = '2024.06.00'
+    // media3 PIN 1.9.0 — versi TERBARU dengan minCompileSdk=35.
+    // 1.10.0+ menuntut minCompileSdk=36 (terverifikasi dari
+    // aar-metadata.properties resmi Google Maven) dan AGP 8.7.3
+    // mentok compileSdk 35. JANGAN naik tanpa naik compileSdk.
+    def media3Version = '1.9.0'
+    // Room PIN 2.6.1 — 2.7.0+ menarik kotlin-stdlib 2.x (metadata
+    // 2.1.0) yang TIDAK BISA dibaca compiler Kotlin 1.9.25 (mentok
+    // metadata 2.0.0). 2.6.1 tidak menarik stdlib 2.x dan cocok
+    // dengan Kotlin 1.9.25 + kapt. (Pelajaran ClipKu v1.3.0 fix2.)
+    def roomVersion = '2.6.1'
+    implementation platform("androidx.compose:compose-bom:$composeBom")
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-graphics'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.material:material-icons-extended'
+    implementation 'androidx.activity:activity-compose:1.9.0'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.3'
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+
+    // media3 1.9.0: ExoPlayer (preview clip) + Transformer
+    // (potong clip virtual, edit-list trim) + UI (PlayerView).
+    // Di 1.9.0 ctor EditedMediaItemSequence(...) sudah private —
+    // pakai factory withAudioAndVideoFrom (lihat ClipExporter).
+    implementation "androidx.media3:media3-exoplayer:$media3Version"
+    implementation "androidx.media3:media3-transformer:$media3Version"
+    implementation "androidx.media3:media3-ui:$media3Version"
+    implementation "androidx.media3:media3-common:$media3Version"
+
+    // Room 2.6.1 via KAPT — riwayat download + clip hasil export.
+    implementation "androidx.room:room-runtime:$roomVersion"
+    implementation "androidx.room:room-ktx:$roomVersion"
+    kapt "androidx.room:room-compiler:$roomVersion"
+
+    // HTTP: HEAD/metadata + download multi-chunk (Range).
+    // OkHttp 4.12.0. Dispatcher default maxRequestsPerHost=5 HARUS
+    // dinaikkan ke 16 di MultiChunkDownloader, kalau tidak 8 chunk
+    // paralel ke host yang sama akan antre jadi 5.
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+
+    // Unit test JVM: org.json bawaan android.jar di unit test hanya
+    // stub yang melempar "Stub!" — tanpa dependensi ini, parser
+    // metadata archive.org tidak bisa dites di JVM sama sekali.
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}
