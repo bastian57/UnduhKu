@@ -163,7 +163,7 @@ fun ClipScreen(viewModel: UnduhkuViewModel) {
                             Text(
                                 "Preview clip ${preview.index + 1}: " +
                                     "${LinkUtils.formatDurationMs(preview.startMs)}–" +
-                                    LinkUtils.formatDurationMs(preview.endMs)",
+                                    "${LinkUtils.formatDurationMs(preview.endMs)}",
                                 fontSize = 13.sp, color = Color(0xFF9CA3AF)
                             )
                             if (viewModel.previewError != null) {
@@ -243,7 +243,7 @@ fun ClipScreen(viewModel: UnduhkuViewModel) {
                             Text(
                                 "Clip ${clip.index + 1} • " +
                                     "${LinkUtils.formatDurationMs(clip.startMs)}–" +
-                                    LinkUtils.formatDurationMs(clip.endMs)",
+                                    "${LinkUtils.formatDurationMs(clip.endMs)}",
                                 fontSize = 14.sp, color = Color.White
                             )
                             Text(
