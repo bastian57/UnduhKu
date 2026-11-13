@@ -1,6 +1,7 @@
 package com.daftech.unduhku
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
@@ -22,10 +23,19 @@ import com.daftech.unduhku.ui.DownloadScreen
 import com.daftech.unduhku.ui.HistoryScreen
 import com.daftech.unduhku.ui.UnduhkuTheme
 import com.daftech.unduhku.ui.UnduhkuViewModel
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Penangkap crash (fix4): tap tab Riwayat pernah menutup app
+        // tanpa pesan — penyebabnya belum ketemu dari baca kode, jadi
+        // crash berikutnya WAJIB terekam: stack trace lengkap ditulis
+        // ke crash.log + Logcat, lalu diteruskan ke handler default.
+        installCrashHandler()
         // Engine butuh context aplikasi untuk Room + downloader.
         DownloadEngine.init(applicationContext)
         setContent {
@@ -69,6 +79,34 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Penangkap crash global (fix4). Menulis stack trace lengkap +
+     * timestamp + versi app ke `crash.log` di getExternalFilesDir(null)
+     * (append, bukan overwrite) dan ke Logcat, lalu meneruskan ke
+     * handler default sebelumnya supaya dialog sistem tetap muncul.
+     * Handler TIDAK PERNAH melempar — semua dibungkus try/catch.
+     */
+    private fun installCrashHandler() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                val stamp = SimpleDateFormat(
+                    "yyyy-MM-dd HH:mm:ss", Locale.US
+                ).format(Date())
+                val trace = Log.getStackTraceString(throwable)
+                val logFile = File(getExternalFilesDir(null), "crash.log")
+                logFile.appendText(
+                    "=== CRASH $stamp (UnduhKu 1.0.0/vc1, " +
+                        "thread ${thread.name}) ===\n$trace\n"
+                )
+                Log.e("UnduhKu", "CRASH", throwable)
+            } catch (e: Exception) {
+                // Jangan pernah throw dari dalam handler.
+            }
+            previous?.uncaughtException(thread, throwable)
         }
     }
 }

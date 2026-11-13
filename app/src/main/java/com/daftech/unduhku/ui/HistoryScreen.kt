@@ -1,5 +1,6 @@
 package com.daftech.unduhku.ui
 
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -30,6 +32,16 @@ fun HistoryScreen(
     viewModel: UnduhkuViewModel,
     onMakeClip: (DownloadHistoryEntity) -> Unit
 ) {
+    // Breadcrumb (fix4): tap tab Riwayat pernah menutup app tanpa
+    // pesan. Baris ini memastikan dari logcat ketahuan apakah crash
+    // terjadi SEBELUM atau SESUDAH HistoryScreen mulai dirender.
+    LaunchedEffect(Unit) {
+        Log.i(
+            "UnduhKu",
+            "HistoryScreen: ${viewModel.historyDownloads.size} download, " +
+                "${viewModel.historyExports.size} export"
+        )
+    }
     LazyColumn(
         modifier = Modifier
             .fillMaxWidth()

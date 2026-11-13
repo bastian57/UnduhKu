@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -53,6 +54,10 @@ import kotlinx.coroutines.withContext
  *    startX di sini, bukan pola setter.
  */
 class UnduhkuViewModel(application: Application) : AndroidViewModel(application) {
+
+    companion object {
+        private const val TAG = "UnduhKu"
+    }
 
     private val repository = HistoryRepository(application)
 
@@ -374,6 +379,7 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
             lastExportError = null
             var okCount = 0
             var failCount = 0
+            var firstPublishedPath: String? = null
             for (clip in selected) {
                 virtualClips = virtualClips.map {
                     if (it.index == clip.index) it.copy(isExporting = true) else it
@@ -417,6 +423,7 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
                         outputPath = publishedPath
                     )
                 )
+                if (firstPublishedPath == null) firstPublishedPath = publishedPath
                 okCount++
                 virtualClips = virtualClips.map {
                     if (it.index == clip.index) {
@@ -427,63 +434,133 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
             isExporting = false
-            exportProgress = "Selesai: $okCount berhasil, $failCount gagal. " +
-                "Hasil di Download/UnduhKu/clips/."
+            // Lokasi yang ditampilkan HANYA yang benar-benar dikembalikan
+            // publish pertama yang sukses — kalau tidak ada yang sukses,
+            // jangan klaim lokasi apa pun (pelajaran fix3: klaim hardcode
+            // "Download/UnduhKu/clips/" ternyata tidak sesuai kenyataan).
+            exportProgress = if (okCount > 0 && firstPublishedPath != null) {
+                "Selesai: $okCount berhasil, $failCount gagal. " +
+                    "Hasil: $firstPublishedPath"
+            } else {
+                "Selesai: $okCount berhasil, $failCount gagal."
+            }
         }
     }
 
     /**
-     * Publish file clip ke MediaStore Download/UnduhKu/clips
-     * (pola ClipKu saveToDownloads). Sukses HANYA setelah byte
-     * benar-benar tertulis; gagal = null + entri kosong dihapus.
+     * Publish file clip ke Download/UnduhKu/clips (fix4).
+     *
+     * PELAJARAN fix3: insert ke `MediaStore.Video` dengan RELATIVE_PATH
+     * "Download/..." itu BUKAN lokasi valid buat koleksi Video
+     * (RELATIVE_PATH hanya hint di bawah top-level directory yang
+     * relevan dengan tipenya — buat video itu Movies/DCIM). MediaStore
+     * mengabaikan hint itu, file mendarat di Movies/ atau fallback,
+     * sementara kode mengembalikan string hardcode yang tidak pernah
+     * diverifikasi — UI mengklaim sukses di lokasi yang salah.
+     *
+     * Jalur utama sekarang: `MediaStore.Downloads` — koleksi yang
+     * memang menerima path Download/. Sukses HANYA setelah byte
+     * benar-benar tertulis, dan path yang dikembalikan adalah hasil
+     * VERIFIKASI query URI (RELATIVE_PATH + DISPLAY_NAME, atau DATA
+     * kalau tersedia) — bukan hardcode.
      */
     private suspend fun publishExport(tempFile: File, fileName: String): String? =
         withContext(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            val resolver = app.contentResolver
             try {
                 val values = ContentValues().apply {
-                    put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
-                    put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                    put(MediaStore.Downloads.MIME_TYPE, "video/mp4")
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        put(MediaStore.Video.Media.RELATIVE_PATH, "Download/UnduhKu/clips")
+                        put(MediaStore.Downloads.RELATIVE_PATH, "Download/UnduhKu/clips")
                     }
                 }
-                val uri = getApplication<Application>().contentResolver.insert(
-                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values
+                val uri = resolver.insert(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
                 )
                 if (uri != null) {
-                    val out = getApplication<Application>().contentResolver
-                        .openOutputStream(uri)
+                    val out = resolver.openOutputStream(uri)
                     if (out != null) {
                         var bytesWritten = 0L
                         out.use { o -> bytesWritten = tempFile.inputStream().copyTo(o) }
                         if (bytesWritten > 0L) {
                             tempFile.delete()
+                            val verified = verifyDownloadPath(resolver, uri, fileName)
+                            if (verified != null) {
+                                Log.i(TAG, "publishExport OK: $verified " +
+                                    "(${bytesWritten} byte)")
+                                return@withContext verified
+                            }
+                            Log.w(TAG, "publishExport: lokasi tidak " +
+                                "terverifikasi, klaim Download/UnduhKu/clips/$fileName")
                             return@withContext "Download/UnduhKu/clips/$fileName"
                         }
                     }
                     try {
-                        getApplication<Application>().contentResolver.delete(uri, null, null)
+                        resolver.delete(uri, null, null)
                     } catch (e: Exception) { /* abaikan */
                     }
                 }
-            } catch (e: Exception) { /* jatuh ke fallback */
+            } catch (e: Exception) {
+                Log.e(TAG, "publishExport: insert/tulis " +
+                    "MediaStore.Downloads gagal", e)
             }
             // Fallback: folder file eksternal app (selalu bisa ditulis).
             try {
                 val dir = File(
-                    getApplication<Application>().getExternalFilesDir(
-                        Environment.DIRECTORY_DOWNLOADS
-                    ),
+                    app.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
                     "UnduhKu/clips"
                 ).apply { mkdirs() }
                 val target = File(dir, fileName)
                 tempFile.copyTo(target, overwrite = true)
                 tempFile.delete()
+                Log.i(TAG, "publishExport fallback OK: ${target.absolutePath}")
                 target.absolutePath
             } catch (e: Exception) {
+                Log.e(TAG, "publishExport: fallback gagal", e)
                 null
             }
         }
+
+    /**
+     * Tanyakan ke MediaStore di mana sebenarnya file hasil insert
+     * tadi mendarat. Kembalikan path yang bisa ditampilkan ke user
+     * ("Download/UnduhKu/clips/<nama>") atau DATA absolut kalau ada;
+     * null kalau query gagal (pemanggil memakai klaim terakhir).
+     */
+    private fun verifyDownloadPath(
+        resolver: android.content.ContentResolver,
+        uri: Uri,
+        fileName: String
+    ): String? {
+        return try {
+            val projection = arrayOf(
+                MediaStore.Downloads.RELATIVE_PATH,
+                MediaStore.Downloads.DISPLAY_NAME,
+                MediaStore.MediaColumns.DATA
+            )
+            resolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                val dataIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+                val data = if (dataIdx >= 0) cursor.getString(dataIdx) else null
+                if (!data.isNullOrBlank()) return@use data
+                val relIdx = cursor.getColumnIndex(MediaStore.Downloads.RELATIVE_PATH)
+                val nameIdx = cursor.getColumnIndex(MediaStore.Downloads.DISPLAY_NAME)
+                val rel = if (relIdx >= 0) cursor.getString(relIdx) else null
+                val name = if (nameIdx >= 0) {
+                    cursor.getString(nameIdx)
+                } else {
+                    null
+                } ?: fileName
+                if (rel.isNullOrBlank()) return@use null
+                rel.trimEnd('/') + "/" + name
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "verifyDownloadPath: query gagal", e)
+            null
+        }
+    }
 
     // ================= Riwayat =================
 
