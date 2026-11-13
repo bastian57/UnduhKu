@@ -21,6 +21,8 @@ import com.daftech.unduhku.download.DownloadEngine
 import com.daftech.unduhku.ui.ClipScreen
 import com.daftech.unduhku.ui.DownloadScreen
 import com.daftech.unduhku.ui.HistoryScreen
+import com.daftech.unduhku.ui.PromptScreen
+import com.daftech.unduhku.ui.SettingsScreen
 import com.daftech.unduhku.ui.UnduhkuTheme
 import com.daftech.unduhku.ui.UnduhkuViewModel
 import java.io.File
@@ -47,34 +49,47 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // Satu ViewModel dipakai bersama 3 tab supaya hasil
-                    // resolve/download tidak hilang saat pindah tab.
+                    // Satu ViewModel dipakai bersama semua tab supaya
+                    // hasil resolve/download tidak hilang saat pindah tab.
                     val viewModel: UnduhkuViewModel = viewModel()
                     var selectedTab by remember { mutableStateOf(0) }
-                    val tabs = listOf("Unduh", "Clip", "Riwayat")
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        TabRow(selectedTabIndex = selectedTab) {
-                            tabs.forEachIndexed { index, title ->
-                                Tab(
-                                    selected = selectedTab == index,
-                                    onClick = { selectedTab = index },
-                                    text = { Text(title) }
-                                )
+                    val tabs = listOf("Unduh", "Clip", "Riwayat", "Pengaturan")
+                    // Layar Prompt (v1.1.0) menumpuk DI ATAS tab — bukan
+                    // tab ke-5; ditutup lewat tombol "Tutup" di layarnya.
+                    if (viewModel.promptVisible) {
+                        PromptScreen(
+                            viewModel = viewModel,
+                            onOpenSettings = {
+                                viewModel.requestClosePrompt()
+                                selectedTab = 3
                             }
-                        }
-                        when (selectedTab) {
-                            0 -> DownloadScreen(
-                                viewModel = viewModel,
-                                onNavigateToClip = { selectedTab = 1 }
-                            )
-                            1 -> ClipScreen(viewModel = viewModel)
-                            else -> HistoryScreen(
-                                viewModel = viewModel,
-                                onMakeClip = { download ->
-                                    viewModel.requestLoadClipSource(download)
-                                    selectedTab = 1
+                        )
+                    } else {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            TabRow(selectedTabIndex = selectedTab) {
+                                tabs.forEachIndexed { index, title ->
+                                    Tab(
+                                        selected = selectedTab == index,
+                                        onClick = { selectedTab = index },
+                                        text = { Text(title) }
+                                    )
                                 }
-                            )
+                            }
+                            when (selectedTab) {
+                                0 -> DownloadScreen(
+                                    viewModel = viewModel,
+                                    onNavigateToClip = { selectedTab = 1 }
+                                )
+                                1 -> ClipScreen(viewModel = viewModel)
+                                2 -> HistoryScreen(
+                                    viewModel = viewModel,
+                                    onMakeClip = { download ->
+                                        viewModel.requestLoadClipSource(download)
+                                        selectedTab = 1
+                                    }
+                                )
+                                else -> SettingsScreen(keyStore = viewModel.keyStore)
+                            }
                         }
                     }
                 }
@@ -99,7 +114,7 @@ class MainActivity : ComponentActivity() {
                 val trace = Log.getStackTraceString(throwable)
                 val logFile = File(getExternalFilesDir(null), "crash.log")
                 logFile.appendText(
-                    "=== CRASH $stamp (UnduhKu 1.0.0/vc1, " +
+                    "=== CRASH $stamp (UnduhKu 1.1.0/vc2, " +
                         "thread ${thread.name}) ===\n$trace\n"
                 )
                 Log.e("UnduhKu", "CRASH", throwable)

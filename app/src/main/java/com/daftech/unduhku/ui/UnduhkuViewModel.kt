@@ -33,6 +33,13 @@ import com.daftech.unduhku.history.ExportedClipEntity
 import com.daftech.unduhku.history.HistoryRepository
 import com.daftech.unduhku.model.ArchiveFile
 import com.daftech.unduhku.model.VirtualClip
+import com.daftech.unduhku.prompt.ApiKeyStore
+import com.daftech.unduhku.prompt.ClipAnalysis
+import com.daftech.unduhku.prompt.PromptEngine
+import com.daftech.unduhku.prompt.PromptRenderer
+import com.daftech.unduhku.prompt.PromptResult
+import com.daftech.unduhku.prompt.PromptTarget
+import com.daftech.unduhku.prompt.VideoPromptGenerator
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -110,10 +117,40 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
     var historyExports by mutableStateOf<List<ExportedClipEntity>>(emptyList())
         private set
 
+    // ---------- Video ke Prompt (v1.1.0) ----------
+    var promptVisible by mutableStateOf(false)
+        private set
+    var promptClip by mutableStateOf<VirtualClip?>(null)
+        private set
+    var promptClipName by mutableStateOf("")
+        private set
+    var promptEngine by mutableStateOf(PromptEngine.GEMINI)
+        private set
+    var promptTarget by mutableStateOf(PromptTarget.OMNI_10S)
+        private set
+    var promptLoading by mutableStateOf(false)
+        private set
+    var promptProgress by mutableStateOf("")
+        private set
+    var promptResult by mutableStateOf<PromptResult?>(null)
+        private set
+    var promptError by mutableStateOf<String?>(null)
+        private set
+    var promptGeminiKeySet by mutableStateOf(false)
+        private set
+    var promptGroqKeySet by mutableStateOf(false)
+        private set
+
     // ---------- Private (bukan state) ----------
     private var player: ExoPlayer? = null
     private var exportJob: Job? = null
     private val thumbnailRequested = mutableSetOf<Int>()
+    /** Penyimpanan kunci API (EncryptedSharedPreferences). */
+    val keyStore = ApiKeyStore(application)
+    private val promptGenerator = VideoPromptGenerator(application, keyStore)
+    private var promptJob: Job? = null
+    private var lastAnalysis: ClipAnalysis? = null
+    private var promptClipFile: File? = null
 
     /** ExoPlayer untuk preview clip — dibaca ClipScreen via AndroidView. */
     fun peekPlayer(): ExoPlayer? = player
@@ -558,6 +595,134 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
             }
         } catch (e: Exception) {
             Log.w(TAG, "verifyDownloadPath: query gagal", e)
+            null
+        }
+    }
+
+    // ================= Video ke Prompt (v1.1.0) =================
+
+    /** Buka layar Prompt untuk clip yang SUDAH diekspor (file fisik ada). */
+    fun requestOpenPrompt(clip: VirtualClip) {
+        val file = clip.exportedPath?.let { exportedPathToFile(it) }
+        if (file == null) {
+            statusMessage = "File clip hasil export tidak ditemukan."
+            return
+        }
+        promptJob?.cancel()
+        promptClip = clip
+        promptClipFile = file
+        promptClipName = file.name
+        lastAnalysis = null
+        promptResult = null
+        promptError = null
+        promptProgress = ""
+        promptGeminiKeySet = keyStore.hasGeminiKey()
+        promptGroqKeySet = keyStore.hasGroqKey()
+        // Kalau engine aktif kuncinya kosong tapi engine lain ada
+        // kuncinya, pindah otomatis ke yang bisa jalan.
+        if (promptEngine == PromptEngine.GEMINI && !promptGeminiKeySet &&
+            promptGroqKeySet
+        ) {
+            promptEngine = PromptEngine.GROQ
+        }
+        promptVisible = true
+    }
+
+    fun requestClosePrompt() {
+        promptJob?.cancel()
+        promptVisible = false
+        promptLoading = false
+    }
+
+    fun updatePromptEngine(engine: PromptEngine) {
+        if (engine == promptEngine) return
+        promptEngine = engine
+        promptError = null
+    }
+
+    /**
+     * Ganti target Omni/Veo — render ulang dari analisis TERAKHIR
+     * tanpa panggil API lagi (hemat kuota).
+     */
+    fun updatePromptTarget(target: PromptTarget) {
+        if (target == promptTarget) return
+        promptTarget = target
+        val analysis = lastAnalysis
+        if (analysis != null) {
+            promptResult = PromptRenderer.render(analysis, target)
+        }
+    }
+
+    /** Generate prompt — engine dicek kuncinya dulu (jangan error mentah). */
+    fun requestGeneratePrompt() {
+        val file = promptClipFile ?: run {
+            promptError = "File clip tidak ditemukan."
+            return
+        }
+        val clip = promptClip ?: return
+        if (promptLoading) return
+        val hasKey = if (promptEngine == PromptEngine.GEMINI) {
+            keyStore.hasGeminiKey()
+        } else {
+            keyStore.hasGroqKey()
+        }
+        if (!hasKey) {
+            promptError = if (promptEngine == PromptEngine.GEMINI) {
+                "Kunci Gemini belum diisi — buka tab Pengaturan."
+            } else {
+                "Kunci Groq belum diisi — buka tab Pengaturan."
+            }
+            return
+        }
+        promptJob?.cancel()
+        promptJob = viewModelScope.launch {
+            promptLoading = true
+            promptError = null
+            promptResult = null
+            promptProgress = "Menyiapkan…"
+            // ATURAN state: callback progress dipanggil generator dari
+            // thread IO — tulis state lewat viewModelScope (Main),
+            // JANGAN langsung dari callback.
+            val outcome = promptGenerator.generate(
+                clipFile = file,
+                clipDurationMs = clip.durationMs,
+                engine = promptEngine,
+                target = promptTarget,
+                onProgress = { msg ->
+                    viewModelScope.launch { promptProgress = msg }
+                }
+            )
+            promptLoading = false
+            when (outcome) {
+                is VideoPromptGenerator.Outcome.Ok -> {
+                    lastAnalysis = outcome.analysis
+                    promptResult = outcome.result
+                    promptProgress = "Selesai."
+                }
+                is VideoPromptGenerator.Outcome.Fail -> {
+                    promptError = outcome.message
+                    promptProgress = ""
+                }
+            }
+        }
+    }
+
+    /**
+     * Path hasil export (fix4) → File. Bentuknya dua macam:
+     *  - absolut (fallback app-private): "/storage/.../xxx.mp4"
+     *  - relatif MediaStore: "Download/UnduhKu/clips/xxx.mp4"
+     *    (= /storage/emulated/0/Download/UnduhKu/clips/xxx.mp4).
+     */
+    private fun exportedPathToFile(path: String): File? {
+        return try {
+            when {
+                path.startsWith("/") -> File(path).takeIf { it.exists() }
+                path.startsWith("Download/") -> File(
+                    Environment.getExternalStorageDirectory(), path
+                ).takeIf { it.exists() }
+                else -> null
+            }
+        } catch (e: Exception) {
             null
         }
     }

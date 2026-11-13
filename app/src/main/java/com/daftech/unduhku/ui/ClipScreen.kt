@@ -246,53 +246,71 @@ fun ClipScreen(viewModel: UnduhkuViewModel) {
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF111827))
                 ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Checkbox(
-                            checked = clip.isSelected,
-                            onCheckedChange = {
-                                viewModel.updateClipSelection(clip.index, it)
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Checkbox(
+                                checked = clip.isSelected,
+                                onCheckedChange = {
+                                    viewModel.updateClipSelection(clip.index, it)
+                                }
+                            )
+                            val bitmap = viewModel.clipThumbnails[clip.index]
+                            if (bitmap != null) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Thumbnail clip ${clip.index + 1}",
+                                    modifier = Modifier
+                                        .width(80.dp)
+                                        .height(45.dp)
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .width(80.dp)
+                                        .height(45.dp)
+                                        .background(Color(0xFF1F2937))
+                                )
                             }
-                        )
-                        val bitmap = viewModel.clipThumbnails[clip.index]
-                        if (bitmap != null) {
-                            Image(
-                                bitmap = bitmap.asImageBitmap(),
-                                contentDescription = "Thumbnail clip ${clip.index + 1}",
-                                modifier = Modifier
-                                    .width(80.dp)
-                                    .height(45.dp)
-                            )
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .width(80.dp)
-                                    .height(45.dp)
-                                    .background(Color(0xFF1F2937))
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Clip ${clip.index + 1} • " +
+                                        "${LinkUtils.formatDurationMs(clip.startMs)}–" +
+                                        "${LinkUtils.formatDurationMs(clip.endMs)}",
+                                    fontSize = 14.sp, color = Color.White
+                                )
+                                Text(
+                                    when {
+                                        clip.exportedPath != null ->
+                                            "Terekspor: ${clip.exportedPath}"
+                                        clip.isExporting -> "Mengekspor…"
+                                        else -> "Virtual — belum jadi file"
+                                    },
+                                    fontSize = 12.sp, color = Color(0xFF9CA3AF)
+                                )
+                            }
+                            TextButton(onClick = { viewModel.requestPreviewClip(clip) }) {
+                                Text("Preview")
+                            }
                         }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Clip ${clip.index + 1} • " +
-                                    "${LinkUtils.formatDurationMs(clip.startMs)}–" +
-                                    "${LinkUtils.formatDurationMs(clip.endMs)}",
-                                fontSize = 14.sp, color = Color.White
-                            )
-                            Text(
-                                when {
-                                    clip.exportedPath != null ->
-                                        "Terekspor: ${clip.exportedPath}"
-                                    clip.isExporting -> "Mengekspor…"
-                                    else -> "Virtual — belum jadi file"
-                                },
-                                fontSize = 12.sp, color = Color(0xFF9CA3AF)
-                            )
-                        }
-                        TextButton(onClick = { viewModel.requestPreviewClip(clip) }) {
-                            Text("Preview")
+                        // "Buat Prompt" (v1.1.0) — HANYA untuk clip yang
+                        // sudah jadi file (butuh file MP4 untuk dianalisis).
+                        if (clip.exportedPath != null) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(onClick = {
+                                    viewModel.requestOpenPrompt(clip)
+                                }) {
+                                    Text("Buat Prompt")
+                                }
+                                Text(
+                                    "Bikin prompt text-to-video untuk Flow.",
+                                    fontSize = 12.sp, color = Color(0xFF9CA3AF)
+                                )
+                            }
                         }
                     }
                 }
