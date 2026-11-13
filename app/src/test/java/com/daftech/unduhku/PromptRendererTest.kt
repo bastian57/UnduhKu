@@ -142,6 +142,54 @@ class PromptRendererTest {
     }
 
     @Test
+    fun tagalogDialogueTranslatedInPromptOriginalInGloss() {
+        // Regresi fix6 (13 Nov 2026): clip DBPH dubbing Tagalog —
+        // Gemini menulis dialog Tagalog apa adanya ke prompt dan Flow
+        // mengucapkan Tagalog. Sejak fix6, field dialogue SELALU
+        // Inggris (diterjemahkan saat analisis); teks asli + bahasa
+        // hanya tercatat di gloss, TIDAK PERNAH di prompt.
+        val json = JSONObject(
+            "{\"subject\": \"a muscular young man with spiky black " +
+                "hair, wearing an orange martial-arts gi\", " +
+                "\"action_beats\": [\"laughs loudly at the soldiers\", " +
+                "\"his face turns serious\"], " +
+                "\"setting\": \"inside a spaceship\", " +
+                "\"camera_movement\": \"static\", " +
+                "\"camera_confidence\": \"high\", " +
+                "\"lighting\": \"dim red light\", " +
+                "\"mood\": \"tense\", " +
+                "\"audio_cues\": \"laughter, spaceship hum\", " +
+                "\"dialogue\": \"Impossible, what you're saying!\", " +
+                "\"dialogue_original\": \"Imposible ang sinasabi niyo!\", " +
+                "\"dialogue_language\": \"Tagalog\"}"
+        )
+        val analysis = ClipAnalysis.fromJson(json, true)
+        assertEquals("Imposible ang sinasabi niyo!", analysis.dialogueOriginal)
+        assertEquals("Tagalog", analysis.dialogueLanguage)
+        val result = PromptRenderer.render(analysis, PromptTarget.OMNI_10S)
+        // Prompt Flow: Dialogue Inggris, TANPA teks/bahasa Tagalog.
+        assertTrue(result.prompt.contains("Dialogue:"))
+        assertTrue(result.prompt.contains("Impossible, what you're saying!"))
+        assertFalse(result.prompt.contains("Imposible ang sinasabi niyo"))
+        assertFalse(result.prompt.contains("Tagalog"))
+        // Gloss: dialog asli + bahasa + terjemahan tercatat.
+        assertTrue(result.glossId.contains("Dialog asli (Tagalog)"))
+        assertTrue(result.glossId.contains("Imposible ang sinasabi niyo!"))
+        assertTrue(result.glossId.contains("Impossible, what you're saying!"))
+    }
+
+    @Test
+    fun noDialogueRendersNoDialogueLine() {
+        // Analisis tanpa dialog — perilaku sama seperti sebelum fix6.
+        val analysis = ClipAnalysis.fromJson(
+            JSONObject("{\"subject\": \"a warrior\"}"), true
+        )
+        val result = PromptRenderer.render(analysis, PromptTarget.OMNI_10S)
+        assertFalse(result.prompt.contains("Dialogue:"))
+        assertFalse(result.glossId.contains("Dialog asli"))
+    }
+
+    @Test
     fun fromJsonIsLenient() {
         // Respons model tidak lengkap — tetap jadi analisis valid.
         val analysis = ClipAnalysis.fromJson(

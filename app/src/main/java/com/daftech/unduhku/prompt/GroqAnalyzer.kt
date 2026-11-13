@@ -48,7 +48,10 @@ object GroqAnalyzer {
         "franchise, movie, cartoon or character name. Infer the camera " +
         "movement from framing changes between the frames and state " +
         "your confidence honestly. You cannot hear audio: put expected " +
-        "sound effects in audio_cues and leave dialogue empty."
+        "sound effects in audio_cues, leave dialogue empty and set " +
+        "dialogue_original and dialogue_language to null — you cannot " +
+        "hear the original language. If you nevertheless infer a " +
+        "spoken line from lip movement, write it in English only."
 
     sealed class Outcome {
         data class Ok(val analysis: ClipAnalysis) : Outcome()

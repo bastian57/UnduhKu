@@ -62,6 +62,9 @@ object PromptRenderer {
 
     private fun audioLines(analysis: ClipAnalysis): String {
         val lines = ArrayList<String>()
+        // fix6: analysis.dialogue SELALU Inggris — diterjemahkan saat
+        // analisis (Gemini) apapun bahasa sumbernya. dialogueOriginal
+        // TIDAK PERNAH dipakai di prompt — hanya di gloss.
         val dialogue = analysis.dialogue?.trim().orEmpty()
         if (dialogue.isNotEmpty() && analysis.audioHeard) {
             // Satu kalimat pendek yang muat diucapkan dalam beat-nya.
@@ -194,8 +197,24 @@ object PromptRenderer {
         }
         val cameraText = "Gerakan kamera: ${a.cameraMovement} " +
             "(keyakinan: ${a.cameraConfidence})."
-        return "$targetText $audioText $cameraText " +
+        // fix6: dialog asli dicatat di gloss (bukan di prompt) supaya
+        // user tahu apa yang sebenarnya diucapkan di clip sumber.
+        val dialogueText = run {
+            val original = a.dialogueOriginal?.trim().orEmpty()
+            if (original.isEmpty()) return@run ""
+            val lang = a.dialogueLanguage?.trim().orEmpty()
+                .ifEmpty { "bahasa sumber" }
+            val translation = a.dialogue?.trim().orEmpty()
+            "Dialog asli ($lang): \"$original\"" +
+                if (translation.isNotEmpty()) " → \"$translation\"." else "."
+        }
+        val glossTail = if (dialogueText.isNotEmpty()) {
+            "$dialogueText Salin prompt Inggris di atas, tempel di Flow " +
+                "(Text-to-Video), lalu generate."
+        } else {
             "Salin prompt Inggris di atas, tempel di Flow " +
-            "(Text-to-Video), lalu generate."
+                "(Text-to-Video), lalu generate."
+        }
+        return "$targetText $audioText $cameraText $glossTail"
     }
 }

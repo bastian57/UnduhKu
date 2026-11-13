@@ -27,8 +27,20 @@ data class ClipAnalysis(
     val mood: String,
     /** Petunjuk suara: SFX + ambience yang terdengar / terlihat. */
     val audioCues: String,
-    /** Satu kalimat dialog pendek yang terdengar, null kalau tidak ada. */
+    /** Satu kalimat dialog pendek yang terdengar, null kalau tidak ada.
+     *  fix6: field ini SELALU Bahasa Inggris — model menerjemahkan
+     *  dialog yang didengar saat analisis, apapun bahasa sumbernya
+     *  (kasus 13 Nov 2026: dialog Tagalog lolos apa adanya ke prompt
+     *  dan Flow mengucapkan Tagalog). */
     val dialogue: String?,
+    /** Teks dialog PERSIS yang didengar, dalam bahasa aslinya.
+     *  TIDAK PERNAH dipakai di prompt Flow — hanya dicatat di gloss
+     *  Indonesia. Null kalau tidak ada dialog / jalur tidak dengar
+     *  audio (Groq: selalu null). */
+    val dialogueOriginal: String? = null,
+    /** Nama bahasa dialog yang didengar, mis. "Tagalog", "English",
+     *  "Japanese". Null kalau tidak ada dialog / tidak diketahui. */
+    val dialogueLanguage: String? = null,
     /** TRUE kalau audio benar-benar didengar (Gemini). FALSE kalau audio
      *  hanya diperkirakan dari gambar (Groq) — baris audio hasil render
      *  WAJIB dilabeli "inferred from visuals, not heard". */
@@ -75,6 +87,12 @@ data class ClipAnalysis(
                     .ifEmpty { "wind and distant rumble" },
                 dialogue = json.optString("dialogue", "").trim()
                     .takeIf { it.isNotEmpty() },
+                // fix6: field baru — lenient: JSON lama tanpa field ini
+                // tetap ter-parse (default null).
+                dialogueOriginal = json.optString("dialogue_original", "")
+                    .trim().takeIf { it.isNotEmpty() },
+                dialogueLanguage = json.optString("dialogue_language", "")
+                    .trim().takeIf { it.isNotEmpty() },
                 audioHeard = audioHeard
             )
         }
@@ -141,8 +159,22 @@ object ClipAnalysisSchema {
                 "Sound effects and ambience heard in the clip, short."
             ))
             put("dialogue", strProp(
-                "One short spoken line heard in the clip, or empty string " +
-                    "if nobody speaks."
+                "One short spoken line heard in the clip, TRANSLATED " +
+                    "into English — this field is ALWAYS English, " +
+                    "whatever language was spoken (the Flow voiceover " +
+                    "follows this text), or empty string if nobody " +
+                    "speaks."
+            ))
+            put("dialogue_original", strProp(
+                "The exact spoken line as heard, in the ORIGINAL " +
+                    "language, NEVER translated (used only for the " +
+                    "Indonesian gloss, never in the prompt), or empty " +
+                    "string if nobody speaks."
+            ))
+            put("dialogue_language", strProp(
+                "Name of the language spoken in the clip, e.g. " +
+                    "\"Tagalog\", \"English\", \"Japanese\", or empty " +
+                    "string if nobody speaks."
             ))
         }
         return JSONObject().apply {
@@ -151,7 +183,7 @@ object ClipAnalysisSchema {
             put("required", JSONArray(listOf(
                 "subject", "action_beats", "setting", "camera_movement",
                 "camera_confidence", "lighting", "mood", "audio_cues",
-                "dialogue"
+                "dialogue", "dialogue_original", "dialogue_language"
             )))
         }
     }
@@ -166,5 +198,9 @@ object ClipAnalysisSchema {
         "camera_confidence (high, medium or low), lighting, mood, " +
         "audio_cues (sound effects you would EXPECT from what you see — " +
         "you cannot hear the clip), dialogue (empty string, you cannot " +
-        "hear the clip). No markdown, no extra text, JSON only."
+        "hear the clip), dialogue_original (null — you cannot hear the " +
+        "original language), dialogue_language (null — you cannot hear " +
+        "the original language). If you nevertheless infer a spoken " +
+        "line from lip movement, write it in English only. " +
+        "No markdown, no extra text, JSON only."
 }

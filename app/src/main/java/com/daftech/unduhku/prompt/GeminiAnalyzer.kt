@@ -47,8 +47,14 @@ object GeminiAnalyzer {
         "in Google Flow. Return the JSON object described by the schema. " +
         "Rules: describe the subject by visible traits ONLY — NEVER write " +
         "a franchise, movie, cartoon or character name. One camera " +
-        "movement only. Dialogue: write the exact short line you hear, " +
-        "or empty string if nobody speaks. Be concrete and visual."
+        "movement only. Dialogue: write the short line you hear " +
+        "TRANSLATED into English in 'dialogue' — this field is ALWAYS " +
+        "English, whatever language was spoken (the Flow voiceover " +
+        "follows it); also return the exact original line in " +
+        "'dialogue_original' and the language name in " +
+        "'dialogue_language' (e.g. Tagalog, English, Japanese). If " +
+        "nobody speaks, all three are empty strings. Be concrete and " +
+        "visual."
 
     /** Hasil: sukses (analisis) atau gagal (pesan ramah untuk UI). */
     sealed class Outcome {
