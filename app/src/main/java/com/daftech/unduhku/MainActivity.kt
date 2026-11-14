@@ -114,7 +114,7 @@ class MainActivity : ComponentActivity() {
                 val trace = Log.getStackTraceString(throwable)
                 val logFile = File(getExternalFilesDir(null), "crash.log")
                 logFile.appendText(
-                    "=== CRASH $stamp (UnduhKu 1.1.0/vc2, " +
+                    "=== CRASH $stamp (UnduhKu 1.2.0/vc3, " +
                         "thread ${thread.name}) ===\n$trace\n"
                 )
                 Log.e("UnduhKu", "CRASH", throwable)

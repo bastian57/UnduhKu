@@ -31,6 +31,7 @@ import com.daftech.unduhku.download.MultiChunkDownloader
 import com.daftech.unduhku.history.DownloadHistoryEntity
 import com.daftech.unduhku.history.ExportedClipEntity
 import com.daftech.unduhku.history.HistoryRepository
+import com.daftech.unduhku.importer.VideoImporter
 import com.daftech.unduhku.model.ArchiveFile
 import com.daftech.unduhku.model.VirtualClip
 import com.daftech.unduhku.prompt.ApiKeyStore
@@ -41,6 +42,7 @@ import com.daftech.unduhku.prompt.PromptResult
 import com.daftech.unduhku.prompt.PromptTarget
 import com.daftech.unduhku.prompt.VideoPromptGenerator
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -84,6 +86,18 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
     var downloadState by mutableStateOf(DownloadEngine.State())
         private set
     var statusMessage by mutableStateOf("")
+        private set
+
+    // ---------- Import video dari HP (v1.2.0) ----------
+    var isImporting by mutableStateOf(false)
+        private set
+    var importProgressFraction by mutableStateOf(0f)
+        private set
+    var importProgressText by mutableStateOf("")
+        private set
+    var importError by mutableStateOf<String?>(null)
+        private set
+    var importSuccess by mutableStateOf<String?>(null)
         private set
 
     // ---------- Tab Clip ----------
@@ -151,6 +165,8 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
     private var promptJob: Job? = null
     private var lastAnalysis: ClipAnalysis? = null
     private var promptClipFile: File? = null
+    /** Job penyalinan impor (bisa dibatalkan user). */
+    private var importJob: Job? = null
 
     /** ExoPlayer untuk preview clip — dibaca ClipScreen via AndroidView. */
     fun peekPlayer(): ExoPlayer? = player
@@ -280,6 +296,151 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
 
     fun requestDismissDownloadCard() {
         DownloadEngine.resetToIdle()
+    }
+
+    // ================= Import video dari HP (v1.2.0) =================
+
+    /**
+     * Salin video yang dipilih dari pemilih file sistem ke
+     * Download/UnduhKu/import, lalu daftarkan sebagai sumber video
+     * biasa (satu baris riwayat status COMPLETED) — tab Clip langsung
+     * menampilkannya seperti video lainnya. Semua state ditulis di
+     * Main; kerja IO dibungkus withContext(Dispatchers.IO).
+     */
+    fun requestImportVideo(sourceUri: Uri) {
+        if (isImporting) return
+        importJob?.cancel()
+        importJob = viewModelScope.launch {
+            isImporting = true
+            importError = null
+            importSuccess = null
+            importProgressFraction = 0f
+            importProgressText = "Membaca file…"
+            val app = getApplication<Application>()
+            val resolver = app.contentResolver
+            try {
+                val picked = withContext(Dispatchers.IO) {
+                    VideoImporter.readPickedInfo(resolver, sourceUri)
+                }
+                val baseName = VideoImporter.sanitizeFileName(
+                    picked.displayName?.trim().orEmpty().ifEmpty { "video.mp4" }
+                )
+                val ext = baseName.substringAfterLast('.', "").lowercase()
+                if (ext !in VideoImporter.SUPPORTED_EXTENSIONS) {
+                    importError =
+                        "Format video tidak didukung — pilih .mp4, .mkv, atau .webm."
+                    importProgressText = ""
+                    return@launch
+                }
+                val displayName = withContext(Dispatchers.IO) {
+                    VideoImporter.uniqueFileName(baseName) {
+                        VideoImporter.displayNameExists(resolver, it)
+                    }
+                }
+                val sizeBytes = picked.sizeBytes
+                if (sizeBytes > 0L) {
+                    val free = withContext(Dispatchers.IO) {
+                        VideoImporter.freeBytes()
+                    }
+                    if (free >= 0L &&
+                        free < sizeBytes + VideoImporter.FREE_SPACE_MARGIN_BYTES
+                    ) {
+                        importError = "Ruang kosong tidak cukup (butuh " +
+                            "${LinkUtils.formatBytes(sizeBytes)}, tersedia " +
+                            "${LinkUtils.formatBytes(free)})."
+                        importProgressText = ""
+                        return@launch
+                    }
+                }
+                var lastPercent = -1
+                val result = VideoImporter.copyVideo(
+                    resolver = resolver,
+                    sourceUri = sourceUri,
+                    displayName = displayName,
+                    sizeBytes = sizeBytes,
+                    onProgress = { copied, total ->
+                        // Callback dari thread IO — hop ke Main sebelum
+                        // tulis state (aturan yang sama seperti prompt).
+                        val percent = if (total > 0L) {
+                            ((copied * 100L) / total).toInt().coerceIn(0, 100)
+                        } else {
+                            -1
+                        }
+                        if (percent != lastPercent) {
+                            lastPercent = percent
+                            viewModelScope.launch {
+                                if (total > 0L) {
+                                    importProgressFraction =
+                                        copied.toFloat() / total.toFloat()
+                                    importProgressText = "Menyalin… $percent% • " +
+                                        "${LinkUtils.formatBytes(copied)} / " +
+                                        "${LinkUtils.formatBytes(total)}"
+                                } else {
+                                    importProgressText = "Menyalin… " +
+                                        LinkUtils.formatBytes(copied)
+                                }
+                            }
+                        }
+                    }
+                )
+                when (result) {
+                    is VideoImporter.CopyResult.Fail -> {
+                        importError = result.message
+                        importProgressText = ""
+                    }
+                    is VideoImporter.CopyResult.Ok -> {
+                        val info = VideoImporter.readVideoInfo(app, result.contentUri)
+                        val id = withContext(Dispatchers.IO) {
+                            repository.insertDownload(
+                                DownloadHistoryEntity(
+                                    url = VideoImporter.SOURCE_MARKER,
+                                    fileName = displayName,
+                                    totalBytes = result.bytesCopied,
+                                    downloadedBytes = result.bytesCopied,
+                                    status = "COMPLETED",
+                                    storageUri = result.contentUri.toString(),
+                                    displayPath = "${VideoImporter.IMPORT_FOLDER}/$displayName"
+                                )
+                            )
+                        }
+                        val detail = buildString {
+                            append(displayName)
+                            if (info.durationMs != null && info.durationMs > 0L) {
+                                append(" • ${LinkUtils.formatDurationMs(info.durationMs)}")
+                            }
+                            if (info.width != null && info.height != null) {
+                                append(" • ${info.width}x${info.height}")
+                            }
+                        }
+                        importProgressFraction = 1f
+                        importProgressText = ""
+                        importSuccess = "Berhasil diimpor: $detail — " +
+                            "buka tab Clip untuk membuat clip."
+                        Log.i(TAG, "import OK: id=$id $displayName")
+                    }
+                }
+            } catch (e: CancellationException) {
+                importProgressText = "Penyalinan dibatalkan."
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "requestImportVideo gagal", e)
+                importError = "Gagal mengimpor video: ${e.message ?: "error"}"
+                importProgressText = ""
+            } finally {
+                isImporting = false
+            }
+        }
+    }
+
+    /** Batalkan penyalinan impor yang sedang jalan. */
+    fun requestCancelImport() {
+        importJob?.cancel()
+    }
+
+    /** Tutup pesan sukses / error impor. */
+    fun requestDismissImportMessage() {
+        importError = null
+        importSuccess = null
     }
 
     // ================= Tab Clip =================

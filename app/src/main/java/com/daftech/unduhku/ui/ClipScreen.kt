@@ -33,6 +33,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.PlayerView
 import com.daftech.unduhku.clip.ClipPlanner
 import com.daftech.unduhku.download.LinkUtils
+import com.daftech.unduhku.importer.VideoImporter
 
 /**
  * Tab 2 — Clip Virtual.
@@ -90,6 +91,13 @@ fun ClipScreen(viewModel: UnduhkuViewModel) {
                                 LinkUtils.formatBytes(download.totalBytes),
                                 fontSize = 12.sp, color = Color(0xFF9CA3AF)
                             )
+                            // Video dari pemilih file HP (v1.2.0).
+                            if (download.url == VideoImporter.SOURCE_MARKER) {
+                                Text(
+                                    "Dari HP",
+                                    fontSize = 12.sp, color = Color(0xFF22D3EE)
+                                )
+                            }
                         }
                     }
                 }

@@ -1,5 +1,7 @@
 package com.daftech.unduhku.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,6 +52,13 @@ fun DownloadScreen(
         unfocusedBorderColor = Color(0xFF374151),
         cursorColor = Color(0xFF22D3EE)
     )
+    // Pemilih file sistem (v1.2.0) — tanpa izin akses semua file;
+    // file yang dipilih langsung disalin ViewModel ke folder import.
+    val pickVideo = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) viewModel.requestImportVideo(uri)
+    }
     LazyColumn(
         modifier = Modifier
             .fillMaxWidth()
@@ -85,6 +94,81 @@ fun DownloadScreen(
                     enabled = !viewModel.isResolving
                 ) { Text("Periksa Link") }
                 if (viewModel.isResolving) CircularProgressIndicator()
+            }
+        }
+        // Pilih video dari HP (v1.2.0) — pemilih file sistem, lalu
+        // disalin ke Download/UnduhKu/import/ dan jadi sumber clip.
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(
+                    onClick = { pickVideo.launch(arrayOf("video/*")) },
+                    enabled = !viewModel.isImporting
+                ) { Text("Pilih Video dari HP") }
+                Text(
+                    "Pilih video dari galeri / file HP — disalin ke " +
+                        "Download/UnduhKu/import/, lalu bisa dibuat clip " +
+                        "virtual + export + prompt seperti video lainnya.",
+                    fontSize = 13.sp, color = Color(0xFF9CA3AF)
+                )
+            }
+        }
+        // Kartu status impor (v1.2.0): progress + batal / sukses / error.
+        if (viewModel.isImporting || viewModel.importError != null ||
+            viewModel.importSuccess != null
+        ) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF111827))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "Impor Video dari HP",
+                            fontSize = 15.sp, color = Color.White
+                        )
+                        if (viewModel.isImporting) {
+                            LinearProgressIndicator(
+                                progress = { viewModel.importProgressFraction },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text(
+                                viewModel.importProgressText,
+                                fontSize = 13.sp, color = Color(0xFF9CA3AF)
+                            )
+                            OutlinedButton(onClick = {
+                                viewModel.requestCancelImport()
+                            }) { Text("Batal") }
+                        }
+                        if (viewModel.importError != null) {
+                            Text(
+                                viewModel.importError ?: "",
+                                fontSize = 13.sp, color = Color(0xFFF87171)
+                            )
+                            OutlinedButton(onClick = {
+                                viewModel.requestDismissImportMessage()
+                            }) { Text("Tutup") }
+                        }
+                        if (viewModel.importSuccess != null) {
+                            Text(
+                                viewModel.importSuccess ?: "",
+                                fontSize = 13.sp, color = Color(0xFF4ADE80)
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(onClick = { onNavigateToClip() }) {
+                                    Text("Buka Tab Clip")
+                                }
+                                OutlinedButton(onClick = {
+                                    viewModel.requestDismissImportMessage()
+                                }) { Text("Tutup") }
+                            }
+                        }
+                    }
+                }
             }
         }
         if (viewModel.resolveError != null) {
