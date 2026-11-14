@@ -23,6 +23,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.daftech.unduhku.clip.ClipExporter
 import com.daftech.unduhku.clip.ClipPlanner
 import com.daftech.unduhku.clip.ThumbnailLoader
+import com.daftech.unduhku.download.DirectVideoLink
 import com.daftech.unduhku.download.DownloadEngine
 import com.daftech.unduhku.download.DownloadService
 import com.daftech.unduhku.download.LinkResolver
@@ -86,6 +87,14 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
     var downloadState by mutableStateOf(DownloadEngine.State())
         private set
     var statusMessage by mutableStateOf("")
+        private set
+
+    // ---------- Tautan video langsung (v1.3.0) ----------
+    var videoLink by mutableStateOf("")
+        private set
+    var isResolvingVideo by mutableStateOf(false)
+        private set
+    var videoLinkError by mutableStateOf<String?>(null)
         private set
 
     // ---------- Import video dari HP (v1.2.0) ----------
@@ -227,6 +236,43 @@ class UnduhkuViewModel(application: Application) : AndroidViewModel(application)
 
     fun updateSelectedArchiveFile(file: ArchiveFile?) {
         selectedArchiveFile = file
+    }
+
+    fun updateVideoLink(text: String) {
+        videoLink = text
+    }
+
+    /**
+     * Periksa tautan video langsung (v1.3.0): validasi URL + HEAD
+     * Content-Type video/ (mp4, x-matroska, webm). Hasil sukses masuk
+     * ke directResult yang SAMA dengan alur link umum — kartu Download
+     * yang sudah ada yang menampilkannya, dan requestStartDownload()
+     * yang mengunduhnya lewat mesin multi-chunk yang sudah ada.
+     * State ditulis di Main; kerja network di dalam
+     * DirectVideoLink (IO).
+     */
+    fun requestResolveVideoLink() {
+        val raw = videoLink.trim()
+        if (raw.isEmpty()) {
+            videoLinkError = "Tempel tautan video dulu."
+            return
+        }
+        if (isResolvingVideo) return
+        viewModelScope.launch {
+            isResolvingVideo = true
+            videoLinkError = null
+            directResult = null
+            archiveResult = null
+            selectedArchiveFile = null
+            when (val result = DirectVideoLink.resolve(raw)) {
+                is LinkResolver.Result.Direct -> directResult = result
+                is LinkResolver.Result.Archive -> {
+                    // DirectVideoLink tidak pernah mengembalikan Archive.
+                }
+                is LinkResolver.Result.Error -> videoLinkError = result.message
+            }
+            isResolvingVideo = false
+        }
     }
 
     /** Mulai download lewat foreground service. False = sudah ada download aktif. */

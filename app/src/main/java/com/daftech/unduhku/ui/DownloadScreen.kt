@@ -96,6 +96,43 @@ fun DownloadScreen(
                 if (viewModel.isResolving) CircularProgressIndicator()
             }
         }
+        // Tautan video langsung (v1.3.0) — kolom khusus file video;
+        // divalidasi Content-Type video/* lewat HEAD sebelum download.
+        // Hasil sukses masuk ke kartu Download yang sudah ada di bawah.
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Tempel Link Video Langsung", fontSize = 15.sp, color = Color.White)
+                Text(
+                    "Tautan yang menunjuk LANGSUNG ke file video (.mp4/.mkv/.webm) — " +
+                        "mis. dari Wikimedia Commons. Bukan halaman web.",
+                    fontSize = 13.sp, color = Color(0xFF9CA3AF)
+                )
+                OutlinedTextField(
+                    value = viewModel.videoLink,
+                    onValueChange = { viewModel.updateVideoLink(it) },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("https://…/video.mp4") },
+                    singleLine = true,
+                    colors = fieldColors
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = { viewModel.requestResolveVideoLink() },
+                        enabled = !viewModel.isResolvingVideo
+                    ) { Text("Periksa Video") }
+                    if (viewModel.isResolvingVideo) CircularProgressIndicator()
+                }
+                if (viewModel.videoLinkError != null) {
+                    Text(
+                        viewModel.videoLinkError ?: "",
+                        fontSize = 13.sp, color = Color(0xFFF87171)
+                    )
+                }
+            }
+        }
         // Pilih video dari HP (v1.2.0) — pemilih file sistem, lalu
         // disalin ke Download/UnduhKu/import/ dan jadi sumber clip.
         item {
